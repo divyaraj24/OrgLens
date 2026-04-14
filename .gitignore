@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Secrets & local config
+config.local.yaml
+*.token
+.env
+.env.*
+
+# OrgLens runtime files
+state.json
+events.jsonl
+*.log
+data/repos/
+node_modules/
+
+# Legacy/archive and generated reports
+archive/
+project_report/assets/
+reports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

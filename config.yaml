@@ -1,0 +1,99 @@
+# OrgLens Configuration
+# Used by both Layer 1 (local agent) and Layer 2 (ingestion pipeline).
+# Copy this to config.local.yaml and fill in secrets — config.local.yaml is gitignored.
+
+# ── Repositories to watch ─────────────────────────────────────────────────────
+repos:
+  - owner: your-org # GitHub org / user
+    repo: your-repo # repository name
+    git_url: https://github.com/your-org/your-repo.git
+
+# ── GitHub ────────────────────────────────────────────────────────────────────
+github:
+  token: "${ORGLENS_GITHUB_TOKEN}" # set via env var (recommended)
+
+# ── Webhook listener ──────────────────────────────────────────────────────────
+webhook:
+  port: 8080
+  secret: "${ORGLENS_WEBHOOK_SECRET}" # HMAC-SHA256 secret configured in GitHub
+  skip_signature_check: false # set true for local dev without a secret
+
+# ── Perceval scheduler ────────────────────────────────────────────────────────
+scheduler:
+  poll_interval_hours: 6 # how often to run the Perceval backfill
+  run_on_start: true # run once immediately when agent starts
+
+# ── Batch buffer ──────────────────────────────────────────────────────────────
+buffer:
+  max_events: 100 # flush when this many events are buffered
+  flush_interval_seconds: 30 # flush after this many seconds regardless
+
+# ── Output target ─────────────────────────────────────────────────────────────
+output:
+  target: api # Layer 1 sink: "api" (default) | "file" | "pg"
+  file:
+    path: events.jsonl
+  api:
+    url: "https://your-cloud-endpoint/api/ingest"
+    api_key: "${ORGLENS_API_KEY}"
+    auth_scheme: "x-api-key" # "x-api-key" | "bearer"
+    signing_secret: "${ORGLENS_INGEST_SIGNING_SECRET}" # optional HMAC request signing
+    timeout_seconds: 10
+    max_retries: 3
+  pg:
+    dsn: "postgresql://orglens:password@localhost:5432/orglens"
+
+# ── Module map ────────────────────────────────────────────────────────────────
+module_map_path: module_map.yaml
+
+# ── State file ────────────────────────────────────────────────────────────────
+state_file: state.json
+
+# ── One-command pipeline helper ───────────────────────────────────────────────
+# Example:
+# orglens-pipeline --repo-url https://github.com/owner/repo.git --config config.local.yaml
+
+# ── Layer 2: Core processing API ────────────────────────────────────────────
+layer2:
+  api:
+    host: 0.0.0.0
+    port: 8001
+    api_key: "${ORGLENS_API_KEY}" # expected Authorization: Bearer <key>
+    signing_secret: "${ORGLENS_INGEST_SIGNING_SECRET}" # optional HMAC verifier
+    signature_tolerance_seconds: 300
+    queue_max_retries: 3
+    queue_retry_base_seconds: 5
+    queue_poll_interval_seconds: 0.5
+  postgres:
+    dsn: "postgresql://orglens:password@localhost:5432/orglens"
+
+# ── Layer 2 analytics modules ───────────────────────────────────────────────
+layer2_analytics:
+  aggregation:
+    schedule: "0 */6 * * *"
+    windows: [7, 30, 90]
+    weights:
+      commit: 3.0
+      lines: 0.01
+      pr: 2.0
+      review: 1.5
+      issue: 1.0
+  inference:
+    schedule: "30 */6 * * *"
+    window_days: 30
+    baseline_offset_days: 60
+
+# ── Layer 2 observability module ────────────────────────────────────────────
+layer2_observability:
+  api:
+    host: 0.0.0.0
+    port: 8001
+  llm:
+    enabled: false
+    provider: openai_compatible
+    api_url: https://api.openai.com/v1/chat/completions
+    api_key: "${ORGLENS_LLM_API_KEY}"
+    model: gpt-4o-mini
+    temperature: 0.2
+    max_tokens: 700
+    timeout_seconds: 20

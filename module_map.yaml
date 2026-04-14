@@ -1,0 +1,31 @@
+# OrgLens Module Map — Generic
+# Rules are evaluated in order; first matching prefix wins.
+# Unmatched paths are inferred automatically from multi-layer file structure.
+
+modules:
+  testing:
+    prefixes: ["tests/", "test/"]
+
+  build:
+    prefixes:
+      [
+        ".github/",
+        ".gitlab/",
+        "ci/",
+        "scripts/",
+        "docs/",
+        "doc/",
+        "infra/",
+        "setup.py",
+        "pyproject.toml",
+        "package.json",
+        "pom.xml",
+        "build.gradle",
+        "Cargo.toml",
+        "go.mod",
+        "tox.ini",
+        "Makefile",
+        "Dockerfile",
+      ]
+
+default_module: "other"

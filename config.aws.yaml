@@ -1,0 +1,66 @@
+repos:
+  - owner: your-org
+    repo: your-repo
+    git_url: https://github.com/your-org/your-repo.git
+
+github:
+  token: "${ORGLENS_GITHUB_TOKEN}"
+
+webhook:
+  port: 8080
+  secret: "${ORGLENS_WEBHOOK_SECRET}"
+  skip_signature_check: false
+
+scheduler:
+  poll_interval_hours: 6
+  run_on_start: true
+
+buffer:
+  max_events: 100
+  flush_interval_seconds: 30
+
+output:
+  target: api
+  api:
+    url: "http://layer2-core:8001/api/ingest"
+    api_key: "${ORGLENS_API_KEY}"
+    auth_scheme: "bearer"
+    signing_secret: "${ORGLENS_INGEST_SIGNING_SECRET}"
+    timeout_seconds: 10
+    max_retries: 3
+
+module_map_path: module_map.yaml
+state_file: /data/state.json
+
+layer2:
+  api:
+    host: 0.0.0.0
+    port: 8001
+    api_key: "${ORGLENS_API_KEY}"
+    signing_secret: "${ORGLENS_INGEST_SIGNING_SECRET}"
+    signature_tolerance_seconds: 300
+    queue_max_retries: 3
+    queue_retry_base_seconds: 5
+    queue_poll_interval_seconds: 0.5
+  postgres:
+    dsn: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+
+layer2_analytics:
+  aggregation:
+    schedule: "0 */6 * * *"
+    windows: [7, 30, 90]
+    weights:
+      commit: 3.0
+      lines: 0.01
+      pr: 2.0
+      review: 1.5
+      issue: 1.0
+  inference:
+    schedule: "30 */6 * * *"
+    window_days: 30
+    baseline_offset_days: 60
+
+layer2_observability:
+  api:
+    host: 0.0.0.0
+    port: 8001
