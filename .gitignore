@@ -16,6 +16,8 @@ config.local.yaml
 *.token
 .env
 .env.*
+*.pem
+infra/aws/keys/
 
 # OrgLens runtime files
 state.json

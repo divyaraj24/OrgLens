@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: PBFA97CFB590B2093
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: PostgreSQL
+    uid: PCC52D03280B7034C
+    type: postgres
+    access: proxy
+    url: ${ORGLENS_PG_HOST}:${ORGLENS_PG_PORT}
+    user: ${ORGLENS_PG_USER}
+    secureJsonData:
+      password: ${ORGLENS_PG_PASSWORD}
+    jsonData:
+      database: ${ORGLENS_PG_DB}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    editable: false
