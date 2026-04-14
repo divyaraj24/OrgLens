@@ -17,14 +17,7 @@ OrgLens runs as a simplified 3-layer system:
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    GH[GitHub Events + Backfill] --> L1[Layer 1 Ingestion]
-    L1 --> L2[Layer 2 Core + Analytics]
-    L2 --> DB[(PostgreSQL)]
-    L2 --> PROM[Prometheus /metrics]
-    PROM --> GRAF[Grafana]
-```
+![OrgLens 3-layer architecture](assets/architecture.png)
 
 Active paths:
 
