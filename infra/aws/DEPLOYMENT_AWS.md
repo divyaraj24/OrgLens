@@ -1,6 +1,7 @@
 # OrgLens Stable Cloud Deployment (AWS)
 
 This deployment targets AWS EC2 using the simplified 3-layer model:
+
 - Layer 1 cloud ingestion
 - Layer 2 core processing + analytics API
 - Layer 3 observability (Prometheus + Grafana)
@@ -19,7 +20,11 @@ This deployment targets AWS EC2 using the simplified 3-layer model:
   - 8080 (Layer 1 cloud ingest/backfill)
   - 3000 (Grafana)
   - 9090 (Prometheus, optional external)
-- Docker and docker-compose installed
+- Docker Engine with `docker compose`
+- AWS credentials available through the standard chain:
+  - instance role, or
+  - environment variables, or
+  - local AWS profile (`AWS_PROFILE`, optional)
 
 ## 1) Prepare Environment
 
@@ -44,12 +49,25 @@ Minimum variables to set:
 Edit `config.aws.yaml`:
 
 - update `repos`
-- set `output.api.url` to Layer 2 core ingest endpoint
+- keep `output.api.url` as `http://layer2-core:8001/api/ingest` for in-stack routing
 
 ## 3) Build and Start
 
 ```bash
-docker-compose -f infra/aws/docker-compose.minimal.yml --env-file .env.aws up -d --build
+docker compose -f infra/aws/docker-compose.minimal.yml --env-file .env.aws up -d --build
+```
+
+Cost-aware cloud bootstrap wrapper (recommended before remote setup):
+
+```bash
+MAX_DAILY_USD=0.50 INSTANCE_TYPE=t4g.micro VOLUME_SIZE_GB=20 SKIP_DEPLOY=1 infra/aws/setup_stack.sh
+MAX_DAILY_USD=0.50 INSTANCE_TYPE=t4g.micro VOLUME_SIZE_GB=20 ALERT_EMAIL=<you@example.com> infra/aws/setup_stack.sh
+```
+
+Optional explicit SSM secret sync (same prefix used by setup script):
+
+```bash
+ORGLENS_SSM_PREFIX=/orglens/prod infra/aws/push_ssm_secrets.sh --prefix /orglens/prod --env-file .env.aws
 ```
 
 ## 4) Verify Health
@@ -77,15 +95,44 @@ Grafana:
 - For production, front Layer 1 and Layer 2 with AWS ALB + ACM TLS.
 - Prefer AWS Secrets Manager or SSM Parameter Store over plaintext env files.
 
+## Optional P2 Tracks (Higher Cost)
+
+The following tracks are now implemented as automation scripts and are safe by default because they run in dry-run mode unless `--apply` is provided.
+
+1. ALB + ACM (path-based ingress)
+
+```bash
+infra/aws/p2_enable_alb_acm.sh
+infra/aws/p2_enable_alb_acm.sh --apply --instance-name orglens-stack --cert-arn <acm-arn>
+```
+
+2. RDS PostgreSQL provisioning
+
+```bash
+infra/aws/p2_provision_rds.sh
+infra/aws/p2_provision_rds.sh --apply --db-password '<strong-password>' --write-env-file .env.aws
+```
+
+3. ECS/Fargate preparation (cluster + ECR + taskdefs)
+
+```bash
+infra/aws/p2_prepare_ecs_fargate.sh
+infra/aws/p2_prepare_ecs_fargate.sh --apply
+```
+
+Generated ECS task definition templates are written to `infra/aws/ecs/`.
+
 ## Stable Auth and Deploy Workflow
 
 Use these scripts from the repository root to avoid recurring auth/session issues and to deploy dashboard changes safely.
 
-### 1) Refresh AWS SSO session
+### 1) Optional: refresh AWS SSO session
 
 ```bash
-./scripts/aws_sso_refresh.sh --profile AdministratorAccess-772721871316 --region ap-south-2
+./scripts/aws_sso_refresh.sh --profile <your-sso-profile> --region ap-south-2
 ```
+
+Use this only when you intentionally rely on SSO profiles.
 
 ### 2) Local preflight only
 

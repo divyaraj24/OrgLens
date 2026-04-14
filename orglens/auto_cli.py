@@ -36,11 +36,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--use-remote-aws",
         action="store_true",
-        help="Target remote AWS stack using ORGLENS_AWS_HOST (or 16.112.78.142)",
+            help="Target remote AWS stack using --aws-host or ORGLENS_AWS_HOST",
     )
     p.add_argument(
         "--aws-host",
-        default=os.getenv("ORGLENS_AWS_HOST", "16.112.78.142"),
+            default=os.getenv("ORGLENS_AWS_HOST", ""),
         help="AWS stack host when --use-remote-aws is provided",
     )
     p.add_argument("--api-key", default=os.getenv("ORGLENS_API_KEY", ""))
@@ -342,6 +342,9 @@ def _write_report(result: dict[str, Any], report_file: str | None) -> Path:
 def main() -> None:
     args = _parse_args()
     _setup_logging(args.log_level)
+
+    if args.use_remote_aws and not args.aws_host:
+        raise ValueError("When --use-remote-aws is enabled, provide --aws-host or set ORGLENS_AWS_HOST")
     result = asyncio.run(_run(args))
     report = _write_report(result, args.report_file)
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROFILE="${AWS_PROFILE:-AdministratorAccess-772721871316}"
+PROFILE="${AWS_PROFILE:-}"
 REGION="${AWS_REGION:-ap-south-2}"
-HOST="${ORGLENS_AWS_HOST:-18.60.214.55}"
+HOST="${ORGLENS_AWS_HOST:-}"
 INSTANCE_ID=""
 REMOTE_ROOT="${ORGLENS_REMOTE_ROOT:-/opt/orglens}"
 DRY_RUN="false"
@@ -56,6 +56,19 @@ done
 export AWS_PAGER=""
 export AWS_DEFAULT_REGION="$REGION"
 
+aws_cmd() {
+  if [[ -n "$PROFILE" ]]; then
+    aws --no-cli-pager --profile "$PROFILE" --region "$REGION" "$@"
+  else
+    aws --no-cli-pager --region "$REGION" "$@"
+  fi
+}
+
+if [[ -z "$INSTANCE_ID" && -z "$HOST" ]]; then
+  echo "Set --host (or ORGLENS_AWS_HOST) or provide --instance-id." >&2
+  exit 2
+fi
+
 echo "Running local preflight checks..."
 jq . "$DASHBOARD_LOCAL" >/dev/null
 if ! grep -q 'type: prometheus' "$DATASOURCE_LOCAL" || ! grep -q 'type: postgres' "$DATASOURCE_LOCAL"; then
@@ -63,10 +76,10 @@ if ! grep -q 'type: prometheus' "$DATASOURCE_LOCAL" || ! grep -q 'type: postgres
   exit 1
 fi
 
-aws --no-cli-pager --profile "$PROFILE" --region "$REGION" sts get-caller-identity >/dev/null
+aws_cmd sts get-caller-identity >/dev/null
 
 if [[ -z "$INSTANCE_ID" ]]; then
-  INSTANCE_ID="$(aws --no-cli-pager --profile "$PROFILE" --region "$REGION" ec2 describe-instances \
+  INSTANCE_ID="$(aws_cmd ec2 describe-instances \
     --filters Name=ip-address,Values="$HOST" Name=instance-state-name,Values=running \
     --query 'Reservations[].Instances[].InstanceId' --output text)"
 fi
@@ -76,7 +89,7 @@ if [[ -z "$INSTANCE_ID" || "$INSTANCE_ID" == "None" ]]; then
   exit 1
 fi
 
-PING_STATUS="$(aws --no-cli-pager --profile "$PROFILE" --region "$REGION" ssm describe-instance-information \
+PING_STATUS="$(aws_cmd ssm describe-instance-information \
   --filters Key=InstanceIds,Values="$INSTANCE_ID" \
   --query 'InstanceInformationList[0].PingStatus' --output text)"
 if [[ "$PING_STATUS" != "Online" ]]; then
@@ -84,7 +97,7 @@ if [[ "$PING_STATUS" != "Online" ]]; then
   exit 1
 fi
 
-ACCOUNT_ID="$(aws --no-cli-pager --profile "$PROFILE" --region "$REGION" sts get-caller-identity --query Account --output text)"
+ACCOUNT_ID="$(aws_cmd sts get-caller-identity --query Account --output text)"
 BUCKET_NAME="orglens-deploy-${ACCOUNT_ID}-${REGION}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARCHIVE_PATH="/tmp/orglens-grafana-${TIMESTAMP}.tgz"
@@ -98,14 +111,14 @@ cp "$DATASOURCE_LOCAL" "$TMP_DIR/infra/aws/grafana/provisioning/datasources/data
 
 tar -czf "$ARCHIVE_PATH" -C "$TMP_DIR" .
 
-if ! aws --no-cli-pager --profile "$PROFILE" --region "$REGION" s3 ls "s3://$BUCKET_NAME" >/dev/null 2>&1; then
-  aws --no-cli-pager --profile "$PROFILE" --region "$REGION" s3api create-bucket \
+if ! aws_cmd s3 ls "s3://$BUCKET_NAME" >/dev/null 2>&1; then
+  aws_cmd s3api create-bucket \
     --bucket "$BUCKET_NAME" \
     --create-bucket-configuration "LocationConstraint=$REGION" >/dev/null
 fi
 
-aws --no-cli-pager --profile "$PROFILE" --region "$REGION" s3 cp "$ARCHIVE_PATH" "s3://$BUCKET_NAME/$S3_KEY" >/dev/null
-PRESIGNED_URL="$(aws --no-cli-pager --profile "$PROFILE" --region "$REGION" s3 presign "s3://$BUCKET_NAME/$S3_KEY" --expires-in 3600)"
+aws_cmd s3 cp "$ARCHIVE_PATH" "s3://$BUCKET_NAME/$S3_KEY" >/dev/null
+PRESIGNED_URL="$(aws_cmd s3 presign "s3://$BUCKET_NAME/$S3_KEY" --expires-in 3600)"
 
 if [[ "$DRY_RUN" == "true" ]]; then
   echo "Dry run successful"
@@ -161,7 +174,7 @@ COMMANDS_JSON="$(jq -cn --arg b64 "$SCRIPT_B64" '[
   "/bin/bash /tmp/orglens_dashboard_deploy.sh"
 ]')"
 
-CMD_ID="$(aws --no-cli-pager --profile "$PROFILE" --region "$REGION" ssm send-command \
+CMD_ID="$(aws_cmd ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name 'AWS-RunShellScript' \
   --comment 'OrgLens Grafana dashboard deploy' \
@@ -171,7 +184,7 @@ CMD_ID="$(aws --no-cli-pager --profile "$PROFILE" --region "$REGION" ssm send-co
 echo "SSM command started: $CMD_ID"
 
 for _ in $(seq 1 60); do
-  STATUS="$(aws --no-cli-pager --profile "$PROFILE" --region "$REGION" ssm get-command-invocation \
+  STATUS="$(aws_cmd ssm get-command-invocation \
     --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
     --query 'Status' --output text 2>/dev/null || true)"
   case "$STATUS" in
@@ -183,7 +196,7 @@ for _ in $(seq 1 60); do
       ;;
     Failed|Cancelled|TimedOut)
       echo "SSM deployment failed with status: $STATUS" >&2
-      aws --no-cli-pager --profile "$PROFILE" --region "$REGION" ssm get-command-invocation \
+      aws_cmd ssm get-command-invocation \
         --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
         --query 'StandardErrorContent' --output text >&2 || true
       exit 1

@@ -3,15 +3,16 @@ set -euo pipefail
 
 export AWS_PAGER=""
 
-PROFILE="${AWS_PROFILE:-AdministratorAccess-772721871316}"
+PROFILE="${AWS_PROFILE:-}"
 REGION="${AWS_REGION:-ap-south-2}"
-INSTANCE_TYPE="${INSTANCE_TYPE:-t4g.small}"
+INSTANCE_TYPE="${INSTANCE_TYPE:-t4g.micro}"
 INSTANCE_NAME="${INSTANCE_NAME:-orglens-stack}"
 KEY_NAME="${KEY_NAME:-orglens-ec2-key}"
 SG_NAME="${SG_NAME:-orglens-stack-sg}"
 ROLE_NAME="${ROLE_NAME:-orglens-ec2-role}"
 INSTANCE_PROFILE_NAME="${INSTANCE_PROFILE_NAME:-orglens-ec2-profile}"
-VOLUME_SIZE_GB="${VOLUME_SIZE_GB:-30}"
+VOLUME_SIZE_GB="${VOLUME_SIZE_GB:-20}"
+SSM_PREFIX="${ORGLENS_SSM_PREFIX:-/orglens/prod}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KEY_DIR="$REPO_ROOT/infra/aws/keys"
@@ -30,20 +31,32 @@ require_cmd tar
 require_cmd curl
 
 aws_cli() {
-  aws --profile "$PROFILE" --region "$REGION" "$@"
+  if [[ -n "$PROFILE" ]]; then
+    aws --profile "$PROFILE" --region "$REGION" "$@"
+  else
+    aws --region "$REGION" "$@"
+  fi
 }
 
 aws_iam() {
-  aws --profile "$PROFILE" iam "$@"
+  if [[ -n "$PROFILE" ]]; then
+    aws --profile "$PROFILE" iam "$@"
+  else
+    aws iam "$@"
+  fi
 }
 
 aws_s3() {
-  aws --profile "$PROFILE" --region "$REGION" s3 "$@"
+  if [[ -n "$PROFILE" ]]; then
+    aws --profile "$PROFILE" --region "$REGION" s3 "$@"
+  else
+    aws --region "$REGION" s3 "$@"
+  fi
 }
 
 echo "Validating AWS credentials/profile..."
-ACCOUNT_ID="$(aws --profile "$PROFILE" sts get-caller-identity --query Account --output text)"
-USER_ARN="$(aws --profile "$PROFILE" sts get-caller-identity --query Arn --output text)"
+ACCOUNT_ID="$(aws_cli sts get-caller-identity --query Account --output text)"
+USER_ARN="$(aws_cli sts get-caller-identity --query Arn --output text)"
 echo "Using account: $ACCOUNT_ID"
 echo "Using identity: $USER_ARN"
 
@@ -77,7 +90,7 @@ aws_cli s3api put-bucket-versioning --bucket "$BUCKET_NAME" --versioning-configu
 
 echo "Uploading bundle to S3..."
 aws_s3 cp "$ARCHIVE_PATH" "s3://$BUCKET_NAME/$S3_KEY" >/dev/null
-PRESIGNED_URL="$(aws --profile "$PROFILE" --region "$REGION" s3 presign "s3://$BUCKET_NAME/$S3_KEY" --expires-in 86400)"
+PRESIGNED_URL="$(aws_cli s3 presign "s3://$BUCKET_NAME/$S3_KEY" --expires-in 86400)"
 
 KEY_PATH="$KEY_DIR/${KEY_NAME}.pem"
 echo "Ensuring key pair exists: $KEY_NAME"
@@ -117,6 +130,27 @@ fi
 aws_iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore >/dev/null
 aws_iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess >/dev/null
 
+SSM_SECRETS_POLICY_FILE="/tmp/orglens-ssm-secrets-policy.json"
+cat > "$SSM_SECRETS_POLICY_FILE" <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": [
+        "arn:aws:ssm:${REGION}:${ACCOUNT_ID}:parameter${SSM_PREFIX}*"
+      ]
+    }
+  ]
+}
+JSON
+aws_iam put-role-policy --role-name "$ROLE_NAME" --policy-name "OrgLensSsmSecretsRead" --policy-document "file://$SSM_SECRETS_POLICY_FILE" >/dev/null
+
 if ! aws_iam get-instance-profile --instance-profile-name "$INSTANCE_PROFILE_NAME" >/dev/null 2>&1; then
   aws_iam create-instance-profile --instance-profile-name "$INSTANCE_PROFILE_NAME" >/dev/null
 fi
@@ -151,6 +185,8 @@ fi
 
 MY_IP="$(curl -s https://checkip.amazonaws.com | tr -d '[:space:]')"
 SSH_CIDR="${SSH_CIDR:-${MY_IP}/32}"
+PUBLIC_API_CIDR="${PUBLIC_API_CIDR:-0.0.0.0/0}"
+ADMIN_CIDR="${ADMIN_CIDR:-$SSH_CIDR}"
 
 authorize_ingress() {
   local port="$1"
@@ -161,15 +197,13 @@ authorize_ingress() {
 }
 
 authorize_ingress 22 "$SSH_CIDR"
-authorize_ingress 3000 "0.0.0.0/0"
-authorize_ingress 8001 "0.0.0.0/0"
-authorize_ingress 8080 "0.0.0.0/0"
-authorize_ingress 9090 "0.0.0.0/0"
-authorize_ingress 9093 "0.0.0.0/0"
-authorize_ingress 9001 "0.0.0.0/0"
+authorize_ingress 3000 "$ADMIN_CIDR"
+authorize_ingress 8001 "$PUBLIC_API_CIDR"
+authorize_ingress 8080 "$PUBLIC_API_CIDR"
+authorize_ingress 9090 "$ADMIN_CIDR"
 
 echo "Resolving Ubuntu ARM64 AMI via SSM..."
-AMI_ID="$(aws --profile "$PROFILE" --region "$REGION" ssm get-parameter \
+AMI_ID="$(aws_cli ssm get-parameter \
   --name /aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id \
   --query 'Parameter.Value' --output text)"
 
@@ -207,6 +241,10 @@ if grep -q '^ORGLENS_GITHUB_TOKEN=replace_me$' .env.aws; then
 fi
 if grep -q '^GRAFANA_ADMIN_PASSWORD=admin$' .env.aws; then
   sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=\$(randhex)/" .env.aws
+fi
+
+if [[ -x infra/aws/sync_ssm_secrets.sh ]]; then
+  ORGLENS_SSM_PREFIX="${SSM_PREFIX}" infra/aws/sync_ssm_secrets.sh --prefix "${SSM_PREFIX}" --env-file .env.aws || true
 fi
 
 docker compose -f infra/aws/docker-compose.minimal.yml --env-file .env.aws up -d --build
@@ -250,13 +288,12 @@ Expected service URLs (allow 3-8 minutes for bootstrap + container builds):
 - Layer1 health: http://$PUBLIC_IP:8080/health
 - Prometheus: http://$PUBLIC_IP:9090
 - Grafana: http://$PUBLIC_IP:3000
-- Alertmanager: http://$PUBLIC_IP:9093
-- MinIO console: http://$PUBLIC_IP:9001
 
 SSH (if PEM exists):
 ssh -i "$KEY_PATH" ubuntu@$PUBLIC_IP
 
 Notes:
 - To watch cloud-init completion: sudo tail -f /var/log/cloud-init-output.log
-- Current SG allows ports 22,3000,8001,8080,9001,9090,9093.
+- Current SG allows ports 22,3000,8001,8080,9090.
+- `PUBLIC_API_CIDR` controls 8001/8080 exposure; `ADMIN_CIDR` controls 3000/9090 exposure.
 OUT

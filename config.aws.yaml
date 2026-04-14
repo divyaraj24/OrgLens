@@ -1,7 +1,7 @@
 repos:
-  - owner: your-org
-    repo: your-repo
-    git_url: https://github.com/your-org/your-repo.git
+  - owner: divyaraj24
+    repo: OrgLens
+    git_url: https://github.com/divyaraj24/OrgLens.git
 
 github:
   token: "${ORGLENS_GITHUB_TOKEN}"
@@ -43,7 +43,7 @@ layer2:
     queue_retry_base_seconds: 5
     queue_poll_interval_seconds: 0.5
   postgres:
-    dsn: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+    dsn: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
 
 layer2_analytics:
   aggregation:

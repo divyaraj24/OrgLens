@@ -1,0 +1,27 @@
+{
+  "family": "orglens-layer2-core",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::000000000000:role/orglens-ecs-task-exec-role",
+  "containerDefinitions": [
+    {
+      "name": "layer2-core",
+      "image": "000000000000.dkr.ecr.ap-south-2.amazonaws.com/orglens/layer2-core:latest",
+      "essential": true,
+      "portMappings": [{"containerPort": 8001, "hostPort": 8001, "protocol": "tcp"}],
+      "environment": [
+        {"name": "ORGLENS_CONFIG", "value": "/app/config.aws.yaml"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/orglens/ecs",
+          "awslogs-region": "ap-south-2",
+          "awslogs-stream-prefix": "layer2"
+        }
+      }
+    }
+  ]
+}

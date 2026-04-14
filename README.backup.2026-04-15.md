@@ -94,29 +94,6 @@ orglens-auto https://github.com/owner/repo.git --use-remote-aws
 pytest tests/ -v
 ```
 
-## Validated Achievement Metrics (2026-04-15)
-
-These metrics were produced from reproducible local benchmark runs using three datasets:
-
-- `reports/testsets/baseline_django_batch.json` (5 events)
-- `reports/testsets/medium_django_batch.json` (60 events)
-- `reports/testsets/edge_django_batch.json` (40 events)
-
-Measured outcomes:
-
-- End-to-end dataset success rate: `3/3` passing (`POST /api/ingest` -> `POST /api/run/analytics` -> `GET /api/overview/forecast`)
-- Ingest throughput range: `137.29` to `7892.66` events/sec
-- Ingest throughput median: `5195.26` events/sec
-- Ingest API latency range: `0.0051s` to `0.0364s`
-- Analytics trigger median latency: `0.3211s`
-- Forecast endpoint median latency: `0.0071s`
-
-Source of truth:
-
-- Raw run artifact: `reports/session4_achievement_metrics_20260415.json`
-- Session 2 health evidence: `reports/session2_validation_20260415.md`
-- Session 1 P2 implementation evidence: `reports/session1_p2_implementation_20260415.md`
-
 ## Security Notes
 
 - Keep real credentials in local .env.aws only (ignored by git)

@@ -1,6 +1,6 @@
 # AWS Cost Guardrails for $100 Credit Protection
 
-This guide sets hard monitoring guardrails before deploying OrgLens Layers 2-5.
+This guide sets hard monitoring guardrails before deploying the OrgLens 3-layer stack.
 
 ## Current Access Status
 
@@ -38,12 +38,17 @@ brew install jq
 ```bash
 cd /Users/divyaraj/Documents/Semester\ 6/OrgLens
 chmod +x infra/aws/cost_guardrails.sh
-AWS_PROFILE=AdministratorAccess-772721871316 \
 AWS_REGION=ap-south-2 \
 ALERT_EMAIL=divyarajdeepak2356@gmail.com \
 MONTHLY_LIMIT=75 \
 ALARM_THRESHOLD=60 \
 infra/aws/cost_guardrails.sh
+```
+
+Optional profile usage:
+
+```bash
+AWS_PROFILE=<your-profile> AWS_REGION=ap-south-2 ALERT_EMAIL=you@example.com infra/aws/cost_guardrails.sh
 ```
 
 Why these values:
@@ -64,6 +69,7 @@ Notes:
 - gp3 EBS 20-30 GB only
 - No NAT Gateway for dev/test (use public subnet + SG hardening)
 - Stop EC2 nightly when idle
+- Prefer SSM automation over permanent bastion/SSH-only workflows
 
 ## 5) Daily spend check
 

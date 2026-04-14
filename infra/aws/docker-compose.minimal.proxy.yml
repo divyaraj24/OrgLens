@@ -1,0 +1,128 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  layer2-core:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: http://172.16.1.1:56349
+        HTTPS_PROXY: http://172.16.1.1:56349
+        NO_PROXY: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+        http_proxy: http://172.16.1.1:56349
+        https_proxy: http://172.16.1.1:56349
+        no_proxy: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+    env_file:
+      - ../../.env.aws
+    restart: unless-stopped
+    environment:
+      ORGLENS_CONFIG: /app/config.aws.yaml
+      ORGLENS_API_KEY: ""
+      ORGLENS_INGEST_SIGNING_SECRET: ""
+      HTTP_PROXY: http://172.16.1.1:56349
+      HTTPS_PROXY: http://172.16.1.1:56349
+      NO_PROXY: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+      http_proxy: http://172.16.1.1:56349
+      https_proxy: http://172.16.1.1:56349
+      no_proxy: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+    volumes:
+      - ../../config.aws.yaml:/app/config.aws.yaml:ro
+      - ../../module_map.yaml:/app/module_map.yaml:ro
+    depends_on:
+      - postgres
+    command: ["orglens-core", "--config", "/app/config.aws.yaml", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "8001:8001"
+
+  layer1-cloud:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: http://172.16.1.1:56349
+        HTTPS_PROXY: http://172.16.1.1:56349
+        NO_PROXY: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+        http_proxy: http://172.16.1.1:56349
+        https_proxy: http://172.16.1.1:56349
+        no_proxy: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+    env_file:
+      - ../../.env.aws
+    restart: unless-stopped
+    environment:
+      ORGLENS_CONFIG: /app/config.aws.yaml
+      ORGLENS_LAYER1_API_URL: http://layer2-core:8001/api/ingest
+      ORGLENS_API_KEY: ""
+      ORGLENS_INGEST_SIGNING_SECRET: ""
+      HTTP_PROXY: http://172.16.1.1:56349
+      HTTPS_PROXY: http://172.16.1.1:56349
+      NO_PROXY: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+      http_proxy: http://172.16.1.1:56349
+      https_proxy: http://172.16.1.1:56349
+      no_proxy: localhost,127.0.0.1,postgres,layer1-cloud,layer2-core,prometheus,grafana
+    volumes:
+      - ../../config.aws.yaml:/app/config.aws.yaml:ro
+      - ../../module_map.yaml:/app/module_map.yaml:ro
+    depends_on:
+      - layer2-core
+    command: ["orglens-cloud-ingest", "--config", "/app/config.aws.yaml", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    depends_on:
+      - layer2-core
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./prometheus/prometheus.minimal.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - layer2-core
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_EXPLORE_ENABLED: "false"
+      GF_ALERTING_ENABLED: "false"
+      GF_UNIFIED_ALERTING_ENABLED: "false"
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/orglens-3layer-overview.json
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+  promdata:
+  grafanadata:

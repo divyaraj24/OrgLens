@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="${ORGLENS_AWS_HOST:-18.60.214.55}"
+HOST="${ORGLENS_AWS_HOST:-}"
 USER="${ORGLENS_AWS_USER:-ubuntu}"
 KEY_PATH="${ORGLENS_AWS_KEY_PATH:-infra/aws/keys/orglens-ec2-key.pem}"
 REMOTE_ROOT="${ORGLENS_REMOTE_ROOT:-/opt/orglens}"
 MODE="${ORGLENS_DEPLOY_MODE:-auto}"
-AWS_PROFILE="${AWS_PROFILE:-AdministratorAccess-772721871316}"
+AWS_PROFILE="${AWS_PROFILE:-}"
 AWS_REGION="${AWS_REGION:-ap-south-2}"
 INSTANCE_ID=""
 GRAFANA_URL=""
@@ -68,8 +68,18 @@ DATASOURCE_LOCAL="$REPO_ROOT/infra/aws/grafana/provisioning/datasources/datasour
 ENV_AWS_LOCAL="$REPO_ROOT/.env.aws"
 SSM_DEPLOY_SCRIPT="$REPO_ROOT/scripts/deploy_grafana_dashboard_ssm.sh"
 
-if [[ -z "$GRAFANA_URL" ]]; then
+if [[ -z "$GRAFANA_URL" && -n "$HOST" ]]; then
   GRAFANA_URL="http://$HOST:3000"
+fi
+
+if [[ -z "$HOST" && -z "$INSTANCE_ID" && "$MODE" != "api" ]]; then
+  echo "Set --host (or ORGLENS_AWS_HOST), or provide --instance-id for SSM mode." >&2
+  exit 2
+fi
+
+if [[ "$MODE" == "api" && -z "$GRAFANA_URL" ]]; then
+  echo "API mode requires --grafana-url or --host (ORGLENS_AWS_HOST)." >&2
+  exit 2
 fi
 
 if [[ ! -f "$DASHBOARD_LOCAL" ]]; then
@@ -151,7 +161,10 @@ run_ssm_deploy() {
   fi
 
   local args
-  args=(--host "$HOST" --remote-root "$REMOTE_ROOT" --profile "$AWS_PROFILE" --region "$AWS_REGION")
+  args=(--host "$HOST" --remote-root "$REMOTE_ROOT" --region "$AWS_REGION")
+  if [[ -n "$AWS_PROFILE" ]]; then
+    args+=(--profile "$AWS_PROFILE")
+  fi
   if [[ -n "$INSTANCE_ID" ]]; then
     args+=(--instance-id "$INSTANCE_ID")
   fi
