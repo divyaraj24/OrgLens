@@ -1,0 +1,19 @@
+{
+  "repository": {"full_name": "test/repo", "name": "repo"},
+  "ref": "refs/heads/main",
+  "commits": [
+    {
+      "id": "deadbeef1234",
+      "author": {
+        "name": "Alice Dev",
+        "email": "alice@example.com",
+        "username": "alice"
+      },
+      "timestamp": "2024-04-01T10:00:00Z",
+      "message": "Fix authentication bug\n\nCo-authored-by: Bob Builder <bob@example.com>",
+      "added": ["django/contrib/auth/backends.py"],
+      "modified": ["django/contrib/auth/models.py"],
+      "removed": []
+    }
+  ]
+}
