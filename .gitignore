@@ -28,7 +28,7 @@ node_modules/
 
 # Legacy/archive and generated reports
 archive/
-project_report/assets/
+project_report/
 reports/
 
 # IDE
