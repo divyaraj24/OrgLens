@@ -28,6 +28,7 @@ node_modules/
 
 # Legacy/archive and generated reports
 archive/
+docs/
 project_report/
 reports/
 
