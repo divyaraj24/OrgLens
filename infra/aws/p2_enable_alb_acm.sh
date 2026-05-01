@@ -140,12 +140,34 @@ if [[ "$ALB_SG_ID" == "None" || -z "$ALB_SG_ID" ]]; then
   fi
 fi
 
-run aws_cli ec2 authorize-security-group-ingress --group-id "$ALB_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=$PUBLIC_API_CIDR,Description=OrgLens-ALB-HTTP}]"
-if [[ -n "$CERT_ARN" ]]; then
-  run aws_cli ec2 authorize-security-group-ingress --group-id "$ALB_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=$PUBLIC_API_CIDR,Description=OrgLens-ALB-HTTPS}]"
+
+# Add SG rule for ALB HTTP (ignore duplicate error)
+set +e
+aws_cli ec2 authorize-security-group-ingress --group-id "$ALB_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=$PUBLIC_API_CIDR,Description=OrgLens-ALB-HTTP}]"
+if [[ $? -ne 0 ]]; then
+  echo "[warn] Duplicate or failed SG rule for ALB HTTP, continuing"
 fi
-run aws_cli ec2 authorize-security-group-ingress --group-id "$INSTANCE_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=8001,ToPort=8001,UserIdGroupPairs=[{GroupId=$ALB_SG_ID,Description=ALB-to-L2}]"
-run aws_cli ec2 authorize-security-group-ingress --group-id "$INSTANCE_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=8080,ToPort=8080,UserIdGroupPairs=[{GroupId=$ALB_SG_ID,Description=ALB-to-L1}]"
+
+# Add SG rule for ALB HTTPS if needed (ignore duplicate error)
+if [[ -n "$CERT_ARN" ]]; then
+  aws_cli ec2 authorize-security-group-ingress --group-id "$ALB_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=$PUBLIC_API_CIDR,Description=OrgLens-ALB-HTTPS}]"
+  if [[ $? -ne 0 ]]; then
+    echo "[warn] Duplicate or failed SG rule for ALB HTTPS, continuing"
+  fi
+fi
+
+# Add SG rule for ALB-to-L2 (ignore duplicate error)
+aws_cli ec2 authorize-security-group-ingress --group-id "$INSTANCE_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=8001,ToPort=8001,UserIdGroupPairs=[{GroupId=$ALB_SG_ID,Description=ALB-to-L2}]"
+if [[ $? -ne 0 ]]; then
+  echo "[warn] Duplicate or failed SG rule for ALB-to-L2, continuing"
+fi
+
+# Add SG rule for ALB-to-L1 (ignore duplicate error)
+aws_cli ec2 authorize-security-group-ingress --group-id "$INSTANCE_SG_ID" --ip-permissions "IpProtocol=tcp,FromPort=8080,ToPort=8080,UserIdGroupPairs=[{GroupId=$ALB_SG_ID,Description=ALB-to-L1}]"
+if [[ $? -ne 0 ]]; then
+  echo "[warn] Duplicate or failed SG rule for ALB-to-L1, continuing"
+fi
+set -e
 
 if [[ "$APPLY" == "true" ]]; then
   TG_L2_ARN="$(aws_cli elbv2 create-target-group --name "$TG_L2_NAME" --protocol HTTP --port 8001 --target-type instance --vpc-id "$VPC_ID" --health-check-path /health --query 'TargetGroups[0].TargetGroupArn' --output text 2>/dev/null || aws_cli elbv2 describe-target-groups --names "$TG_L2_NAME" --query 'TargetGroups[0].TargetGroupArn' --output text)"

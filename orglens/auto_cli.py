@@ -15,6 +15,33 @@ import httpx
 log = logging.getLogger("orglens.auto")
 
 
+def _normalize_remote_host(host: str) -> str:
+    h = host.strip()
+    if not h:
+        return h
+    if h.startswith("http://") or h.startswith("https://"):
+        return h.rstrip("/")
+    return f"http://{h}".rstrip("/")
+
+
+async def _resolve_remote_urls(client: httpx.AsyncClient, aws_host: str, timeout: float) -> tuple[str, str]:
+    """Resolve remote Layer1/Core base URLs for either direct host:ports or ALB path routing."""
+    base = _normalize_remote_host(aws_host)
+    layer1_direct = f"{base}:8080"
+    core_direct = f"{base}:8001"
+
+    try:
+        await _check_health_with_retry(client, f"{layer1_direct}/health", timeout=timeout, retries=2)
+        await _check_health_with_retry(client, f"{core_direct}/health", timeout=timeout, retries=2)
+        return layer1_direct, core_direct
+    except httpx.HTTPError:
+        # Fall through to ALB-style path routing on base host/port.
+        pass
+
+    await _check_health_with_retry(client, f"{base}/health", timeout=timeout, retries=3)
+    return base, base
+
+
 def _setup_logging(level: str = "INFO") -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -103,6 +130,32 @@ async def _check_health_with_retry(
     raise last_exc
 
 
+async def _request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    timeout: float | None,
+    retries: int = 5,
+    backoff_seconds: float = 2.0,
+    **kwargs: Any,
+) -> httpx.Response:
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            resp = await client.request(method=method, url=url, timeout=timeout, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            if attempt == retries - 1:
+                break
+            await asyncio.sleep(backoff_seconds)
+
+    assert last_exc is not None
+    raise last_exc
+
+
 def _auth_headers(api_key: str) -> dict[str, str]:
     if not api_key:
         return {}
@@ -172,11 +225,15 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
 
     layer1_url = args.layer1_url
     core_url = args.core_url
-    if args.use_remote_aws:
-        layer1_url = f"http://{args.aws_host}:8080"
-        core_url = f"http://{args.aws_host}:8001"
 
     async with httpx.AsyncClient() as client:
+        if args.use_remote_aws:
+            layer1_url, core_url = await _resolve_remote_urls(
+                client=client,
+                aws_host=args.aws_host,
+                timeout=args.preflight_timeout,
+            )
+
         if not args.single_repo_mode:
             raise RuntimeError("Single-repo mode is required and cannot be disabled.")
 
@@ -196,12 +253,14 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             from_date = await _resolve_created_at(client, args.repo_url)
 
         if args.single_repo_mode:
-            reset = await client.post(
-                f"{core_url}/api/admin/reset-repo-data",
+            await _request_with_retry(
+                client=client,
+                method="POST",
+                url=f"{core_url}/api/admin/reset-repo-data",
                 headers=_auth_headers(args.api_key),
                 timeout=60.0,
+                retries=5,
             )
-            reset.raise_for_status()
 
         backfill_payload: dict[str, Any] = {
             "repo_url": args.repo_url,
@@ -210,12 +269,14 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         if args.github_token:
             backfill_payload["github_token"] = args.github_token
 
-        backfill_start = await client.post(
-            f"{layer1_url}/api/backfill/start",
+        backfill_start = await _request_with_retry(
+            client=client,
+            method="POST",
+            url=f"{layer1_url}/api/backfill/start",
             json=backfill_payload,
             timeout=60.0,
+            retries=5,
         )
-        backfill_start.raise_for_status()
         backfill_job = backfill_start.json()
         backfill_job_id = backfill_job["job_id"]
 
@@ -224,11 +285,13 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         transient_errors = 0
         while True:
             try:
-                status_resp = await client.get(
-                    f"{layer1_url}/api/backfill/status/{backfill_job_id}",
+                status_resp = await _request_with_retry(
+                    client=client,
+                    method="GET",
+                    url=f"{layer1_url}/api/backfill/status/{backfill_job_id}",
                     timeout=30.0,
+                    retries=2,
                 )
-                status_resp.raise_for_status()
                 backfill_status = status_resp.json()
                 transient_errors = 0
             except (httpx.HTTPError, ValueError):
@@ -269,38 +332,46 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
 
         owner_repo = _extract_owner_repo(args.repo_url)
 
-        analytics = await client.post(
-            f"{core_url}/api/run/analytics",
+        analytics = await _request_with_retry(
+            client=client,
+            method="POST",
+            url=f"{core_url}/api/run/analytics",
             json={"repo": owner_repo, "log_level": args.log_level},
             headers=_auth_headers(args.api_key),
             timeout=None,
+            retries=3,
         )
-        analytics.raise_for_status()
         analytics_result = analytics.json()
 
-        risk = await client.get(
-            f"{core_url}/api/risk/summary",
+        risk = await _request_with_retry(
+            client=client,
+            method="GET",
+            url=f"{core_url}/api/risk/summary",
             params={"repo": owner_repo},
             timeout=60.0,
+            retries=5,
         )
-        risk.raise_for_status()
 
-        trends = await client.get(
-            f"{core_url}/api/trends/weekly",
+        trends = await _request_with_retry(
+            client=client,
+            method="GET",
+            url=f"{core_url}/api/trends/weekly",
             params={"repo": owner_repo},
             timeout=60.0,
+            retries=5,
         )
-        trends.raise_for_status()
 
         overview_payload: dict[str, Any] | None = None
         overview_error: str | None = None
         try:
-            overview = await client.get(
-                f"{core_url}/api/overview/forecast",
+            overview = await _request_with_retry(
+                client=client,
+                method="GET",
+                url=f"{core_url}/api/overview/forecast",
                 params={"repo": owner_repo},
                 timeout=60.0,
+                retries=4,
             )
-            overview.raise_for_status()
             overview_payload = overview.json()
         except (httpx.HTTPError, ValueError) as exc:
             overview_error = f"{type(exc).__name__}: {exc}"

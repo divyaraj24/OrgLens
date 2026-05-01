@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class EventType(str, Enum):
@@ -29,9 +29,19 @@ class RawEventIn(BaseModel):
     actor: str
     event_type: EventType
     target: str
-    module: str
+    module: str = "other"
     timestamp: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("module", mode="before")
+    @classmethod
+    def _normalize_module(cls, value: Any) -> str:
+        if value is None:
+            return "other"
+        if isinstance(value, str):
+            trimmed = value.strip()
+            return trimmed or "other"
+        return str(value)
 
 
 class DeadLetterRecord(BaseModel):

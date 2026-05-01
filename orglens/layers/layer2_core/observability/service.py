@@ -313,6 +313,8 @@ class ObservabilityStore:
             "# TYPE orglens_succession_risk_score gauge",
             "# HELP orglens_events_ingested_total Total events ingested from metrics table",
             "# TYPE orglens_events_ingested_total counter",
+            "# HELP orglens_events_written_total Total events written to storage from metrics table",
+            "# TYPE orglens_events_written_total counter",
             "# HELP orglens_events_deduplicated_total Total deduplicated events",
             "# TYPE orglens_events_deduplicated_total counter",
             "# HELP orglens_dead_letters_total Total dead letters",
@@ -439,6 +441,7 @@ class ObservabilityStore:
                   COALESCE(repo, 'unknown') AS repo,
                   COALESCE(source, 'unknown') AS source,
                   SUM(events_received)::BIGINT AS events_received,
+                                    SUM(events_written)::BIGINT AS events_written,
                   SUM(duplicates)::BIGINT AS duplicates,
                   SUM(dead_letters)::BIGINT AS dead_letters,
                   AVG(avg_lag_ms)::FLOAT AS avg_lag_ms
@@ -450,6 +453,9 @@ class ObservabilityStore:
                 repo_source = {"repo": row["repo"], "source": row["source"]}
                 lines.append(
                     f"orglens_events_ingested_total{_fmt_metric_labels(repo_source)} {int(row['events_received'])}"
+                )
+                lines.append(
+                    f"orglens_events_written_total{_fmt_metric_labels(repo_source)} {int(row['events_written'])}"
                 )
                 lines.append(
                     f"orglens_events_deduplicated_total{_fmt_metric_labels({'repo': row['repo']})} {int(row['duplicates'])}"

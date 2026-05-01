@@ -60,6 +60,10 @@ def _succession_risk(score: float) -> str:
     return "LOW"
 
 
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
 def _jsd(p: dict[str, float], q: dict[str, float]) -> float:
     actors = set(p) | set(q)
     if not actors:
@@ -261,8 +265,8 @@ class InferenceEngine:
 
             current_map = {r["actor"]: float(r["owner_share"]) for r in current_dist}
             prev_map = {r["actor"]: float(r["owner_share"]) for r in prev_dist}
-            jsd_value = _jsd(current_map, prev_map)
-            drift_score = jsd_value * 100.0
+            jsd_value = _clamp(_jsd(current_map, prev_map), 0.0, 1.0)
+            drift_score = _clamp(jsd_value * 100.0, 0.0, 100.0)
 
             prev_top_owner = prev_dist[0]["actor"] if prev_dist else None
             curr_top_owner = current_dist[0]["actor"] if current_dist else None
@@ -332,7 +336,9 @@ class InferenceEngine:
             continuity = (curr / prev) if prev > 0 else 1.0
             continuity = max(continuity, 0.1)
 
-            score = crit * (1.0 - replaceability) * (1.0 / continuity) * 100.0
+            # Normalize risk to a percentage scale for storage/visualization.
+            raw_score = crit * (1.0 - replaceability) * (1.0 / continuity) * 100.0
+            score = _clamp(raw_score, 0.0, 100.0)
             risk_level = _succession_risk(score)
 
             rows.append(

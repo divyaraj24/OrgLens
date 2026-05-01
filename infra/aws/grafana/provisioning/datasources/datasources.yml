@@ -1,5 +1,11 @@
 apiVersion: 1
 
+deleteDatasources:
+  - name: PostgreSQL
+    uid: PCC52D03280B7034C
+
+prune: true
+
 datasources:
   - name: Prometheus
     uid: PBFA97CFB590B2093
@@ -7,19 +13,4 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
-    editable: false
-
-  - name: PostgreSQL
-    uid: PCC52D03280B7034C
-    type: postgres
-    access: proxy
-    url: postgres:5432
-    user: ${POSTGRES_USER}
-    secureJsonData:
-      password: ${POSTGRES_PASSWORD}
-    jsonData:
-      database: ${POSTGRES_DB}
-      sslmode: disable
-      postgresVersion: 1600
-      timescaledb: false
     editable: false

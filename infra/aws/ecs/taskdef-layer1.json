@@ -4,11 +4,11 @@
   "requiresCompatibilities": ["FARGATE"],
   "cpu": "512",
   "memory": "1024",
-  "executionRoleArn": "arn:aws:iam::000000000000:role/orglens-ecs-task-exec-role",
+  "executionRoleArn": "arn:aws:iam::772721871316:role/orglens-ecs-task-exec-role",
   "containerDefinitions": [
     {
       "name": "layer1-cloud",
-      "image": "000000000000.dkr.ecr.ap-south-2.amazonaws.com/orglens/layer1-cloud:latest",
+      "image": "772721871316.dkr.ecr.ap-south-2.amazonaws.com/orglens/layer1-cloud:latest",
       "essential": true,
       "portMappings": [{"containerPort": 8080, "hostPort": 8080, "protocol": "tcp"}],
       "environment": [
